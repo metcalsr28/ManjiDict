@@ -3,16 +3,20 @@ from sudachipy import dictionary
 import glob
 import zipfile
 import json
+import itertools
+from JapaneseWord import JapaneseWord
 
 # Sudachi Parser
-tokenizer_obj = tokenizer_obj = dictionary.Dictionary().create()
-mode = tokenizer.Tokenizer.SplitMode.A
+tokenizer_obj = tokenizer_obj = dictionary.Dictionary(dict_type="full").create()
+mode = tokenizer.Tokenizer.SplitMode.C
 
 class Dictionary:
     def __init__(self):
         self.dictionary_path = 'res/dict'
         self.dictionary_list = []
         self.dictionary_map = []
+        self.search_history = []
+        self.search_index = 0
         self.get_dictionaries()
 
     
@@ -39,44 +43,98 @@ class Dictionary:
         self.dictionary_map = output_map
     
     def look_up(self, sentence):
-        tokenized_word_list = []
         out = []
         sentence = sentence.replace(" ", "")
-        sentence = sentence.replace(" ", "") # two line breaks were breaking things
-        words = [m.surface() for m in tokenizer_obj.tokenize(sentence, mode)]
+        sentence = sentence.replace("…", "...")
+        sentence = sentence.replace("\n", "")
+
+        tokens = tokenizer_obj.tokenize(sentence, mode)
+
+        words = self.recombine(tokens)
+
         for word in words:
+            nextWord = JapaneseWord()
             try:
                 for entry in self.dictionary_map[word]:
-                        result = {
-                            'headword': entry[0],
-                            'reading': entry[1],
-                            'tags': entry[2],
-                            'glossary_list': entry[5],
-                            'sequence': entry[6]
-                        }
-                        tokenized_word_list.append(result)
-                        out.append(result)
-                        break #FIX LATER: This makes it so it displays the first defintion of a word, which is good for now, but I would like a collapsible list of alternative definitions
-            except Exception as e:
-                print(e)
-                result = {
-                    'headword': word[0],
-                    'reading': None,
-                    'tags': None,
-                    'glossary_list': None,
-                    'sequence': None
-                }
-                tokenized_word_list.append(result)
-                continue
-        return tokenized_word_list, out
+                    nextWord.headword = entry[0]
+                    if entry[1] not in nextWord.reading:
+                        nextWord.reading.append(entry[1])
+                    if entry[2] not in nextWord.tags:
+                        nextWord.tags.append(entry[2])
+                    if entry[5] not in nextWord.glossary:
+                        nextWord.glossary.append(entry[5])
+                    if entry[6] not in nextWord.sequence and len(nextWord.sequence) < 4:
+                        nextWord.sequence.append(str(entry[6]))
+                out.append(nextWord)
+                nextWord = JapaneseWord()
 
-    def dict_scanner(self):
-        pass
+            except Exception as e:
+                #print("T1 Ex: " + str(e))
+                try:
+                    corrected_words = [m.dictionary_form() for m in tokenizer_obj.tokenize(word, mode)]
+                    print(corrected_words)
+                    for corrected_word in corrected_words:
+                        for entry in self.dictionary_map[corrected_word]:
+                            #print(entry[0])
+                            nextWord.headword = word
+                            if entry[1] not in nextWord.reading:
+                                nextWord.reading.append(entry[1])
+                            if entry[2] not in nextWord.tags:
+                                nextWord.tags.append(entry[2])
+                            if entry[5] not in nextWord.glossary:
+                                nextWord.glossary.append(entry[5])
+                            if entry[6] not in nextWord.sequence and len(nextWord.sequence) < 4:
+                                nextWord.sequence.append(str(entry[6]))
+                        out.append(nextWord)
+                        nextWord = JapaneseWord()
+                        break
+                except Exception as e2:
+                    try:
+                        #print("T2 Ex: " + str(e2))
+                        corrected_words = [m.normalized_form() for m in tokenizer_obj.tokenize(word, mode)]
+                        for corrected_word in corrected_words:
+                            for entry in self.dictionary_map[corrected_word]:
+                                nextWord.headword = corrected_word
+                                if entry[1] not in nextWord.reading:
+                                    nextWord.reading.append(entry[1])
+                                if entry[2] not in nextWord.tags:
+                                    nextWord.tags.append(entry[2])
+                                if entry[5] not in nextWord.glossary:
+                                    nextWord.glossary.append(entry[5])
+                                if entry[6] not in nextWord.sequence and len(nextWord.sequence) < 4:
+                                    nextWord.sequence.append(str(entry[6]))
+                            out.append(nextWord)
+                            nextWord = JapaneseWord()
+
+                    except Exception as e3:
+                        #print("T3 Ex: " + str(e3))
+                        nextWord = JapaneseWord(word, None, None, None, None, None)
+                        out.append(nextWord)
+        return out
+
+    def recombine(self, tokens):
+        words = []
+        for x in range(len(tokens)):
+            if (tokens[x].part_of_speech()[0] == "助詞" or tokens[x].part_of_speech()[0] == "助動詞") and x != 0:
+                words[-1] = words[-1] + str(tokens[x])
+            elif (tokens[x].part_of_speech()[5] == "連用形-一般" and tokens[x-1].part_of_speech()[0] != "副詞" and tokens[x-1].part_of_speech()[5] != "仮定形-一般") and x != 0:
+                words[-1] = words[-1] + str(tokens[x])
+            elif (tokens[x].part_of_speech()[5] == "連用形-一般" and tokens[x-1].part_of_speech()[5] != "仮定形-一般") and x != 0:
+                words[-1] = words[-1] + str(tokens[x])
+            else:
+                words.append(str(tokens[x]))
+        return words
 
 
 if __name__ == "__main__":
-    dict = Dictionary()
-    print(dict.dictionary_list[3])
-    dict.set_dictionary(dict.dictionary_list[3])
-    for entry in dict.look_up("掛ける"):
-        print(entry)
+    pass
+    # dict = Dictionary()
+    # #print(dict.dictionary_list[3])
+    # dict.set_dictionary(dict.dictionary_list[3])
+    # out = dict.look_up("日本が国連安保理 非常任理事国に 石兼国連大使「責任大きい」")
+    # for entry in out:
+    #     if entry['reading'] is not None and entry['reading'] != ['']:
+    #         #print("Word: "+ entry['headword'])
+    #         #print("Reading: "+ ", ".join(entry['reading']))
+    #         #print("Definition: "+ ", ".join(list(itertools.chain.from_iterable(entry['glossary_list']))))
+    #         #print("")
